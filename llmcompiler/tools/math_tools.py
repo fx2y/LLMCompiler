@@ -146,11 +146,47 @@ def _evaluate_expression(expression: str) -> Union[float, int]:
     """
     logger.info(f"Evaluating expression: {expression}")
     try:
-        local_dict = {"pi": math.pi, "e": math.e}
+        local_dict = {
+            # Constants
+            "pi": math.pi,
+            "e": math.e,
+            "inf": math.inf,
+            "nan": math.nan,
+            # Trigonometric functions
+            "sin": math.sin,
+            "cos": math.cos,
+            "tan": math.tan,
+            "asin": math.asin,
+            "acos": math.acos,
+            "atan": math.atan,
+            # Hyperbolic functions
+            "sinh": math.sinh,
+            "cosh": math.cosh,
+            "tanh": math.tanh,
+            "asinh": math.asinh,
+            "acosh": math.acosh,
+            "atanh": math.atanh,
+            # Exponential and logarithmic functions
+            "exp": math.exp,
+            "log": math.log,
+            "log10": math.log10,
+            "log2": math.log2,
+            # Power and roots
+            "sqrt": math.sqrt,
+            "cbrt": np.cbrt,
+            # Rounding and absolute value
+            "ceil": math.ceil,
+            "floor": math.floor,
+            "abs": abs,
+            # Other functions
+            "factorial": math.factorial,
+            "degrees": math.degrees,
+            "radians": math.radians,
+        }
         result = numexpr.evaluate(
             expression.strip(),
             global_dict={},  # restrict access to globals
-            local_dict=local_dict,  # add common mathematical constants
+            local_dict=local_dict,  # add common mathematical constants and functions
         )
 
         # Convert numpy types to Python native types
