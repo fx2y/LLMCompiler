@@ -2,6 +2,7 @@ import math
 from typing import List, Optional, Union
 
 import numexpr
+import numpy as np
 from langchain.chains.openai_functions import create_structured_output_runnable
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -109,10 +110,31 @@ def _evaluate_expression(expression: str) -> Union[float, int]:
         )
 
         # Convert numpy types to Python native types
-        if hasattr(result, 'item'):
+        if isinstance(result, np.ndarray):
+            if result.size == 1:
+                result = result.item()
+            else:
+                raise MathEvaluationError("Expression resulted in an array. Please provide a scalar expression.")
+        elif hasattr(result, 'item'):
             result = result.item()
 
+        # Check for invalid results
+        if not np.isfinite(result):
+            if np.isnan(result):
+                raise MathEvaluationError("Result is Not a Number (NaN). Check your expression for invalid operations.")
+            elif np.isinf(result):
+                raise MathEvaluationError(
+                    "Result is Infinity. Check your expression for division by zero or very large numbers.")
+
         return result
+    except ValueError as e:
+        raise MathEvaluationError(f"NumExpr evaluation error: {str(e)}")
+    except KeyError as e:
+        raise MathEvaluationError(f"Undefined variable or function: {str(e)}")
+    except SyntaxError as e:
+        raise MathEvaluationError(f"Syntax error in the expression: {str(e)}")
+    except TypeError as e:
+        raise MathEvaluationError(f"Type error: {str(e)}. Check if you're using the correct types in your expression.")
     except Exception as e:
         raise MathEvaluationError(
             f'Failed to evaluate "{expression}". Error: {str(e)}. '
