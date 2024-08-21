@@ -4,7 +4,8 @@ from unittest.mock import Mock, MagicMock
 import pytest
 from langchain_openai import ChatOpenAI
 
-from llmcompiler.tools.math_tools import _evaluate_expression, MathEvaluationError, get_math_tool
+from llmcompiler.tools.math_tools import _evaluate_expression, _cached_evaluate_expression, MathEvaluationError, \
+    get_math_tool
 
 
 def test_basic_arithmetic():
@@ -115,6 +116,40 @@ def test_llm_error_handling():
 
     # Verify that the method was called
     mock_llm.with_structured_output.assert_called_once()
+
+
+def test_caching():
+    # Clear the cache before testing
+    _cached_evaluate_expression.cache_clear()
+
+    # First call should evaluate the expression
+    result1 = _cached_evaluate_expression("2 + 2")
+    assert result1 == 4
+
+    # Second call should return the cached result
+    result2 = _cached_evaluate_expression("2 + 2")
+    assert result2 == 4
+
+    # Check that the cache was used (this is an implementation detail, so be cautious with this test)
+    assert _cached_evaluate_expression.cache_info().hits == 1
+    assert _cached_evaluate_expression.cache_info().misses == 1
+
+
+def test_cache_different_expressions():
+    # Clear the cache before testing
+    _cached_evaluate_expression.cache_clear()
+
+    result1 = _cached_evaluate_expression("2 + 2")
+    result2 = _cached_evaluate_expression("3 * 3")
+    result3 = _cached_evaluate_expression("2 + 2")
+
+    assert result1 == 4
+    assert result2 == 9
+    assert result3 == 4
+
+    # Check cache usage
+    assert _cached_evaluate_expression.cache_info().hits == 1
+    assert _cached_evaluate_expression.cache_info().misses == 2
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 import logging
 import math
+from functools import lru_cache
 from typing import List, Optional, Union
 
 import numexpr
@@ -111,6 +112,23 @@ class ExecuteCode(BaseModel):
 class MathEvaluationError(Exception):
     """Custom exception for math evaluation errors."""
     pass
+
+
+@lru_cache(maxsize=100)
+def _cached_evaluate_expression(expression: str) -> Union[float, int]:
+    """
+    Cached version of expression evaluation using numexpr.
+
+    Args:
+        expression (str): The mathematical expression to evaluate.
+
+    Returns:
+        Union[float, int]: The result of the evaluation.
+
+    Raises:
+        MathEvaluationError: If the expression cannot be evaluated.
+    """
+    return _evaluate_expression(expression)
 
 
 def _evaluate_expression(expression: str) -> Union[float, int]:
@@ -225,7 +243,7 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
             code_model = extractor.invoke(chain_input, config)
             logger.info(f"Generated code: {code_model.code}")
             logger.info(f"Reasoning: {code_model.reasoning}")
-            result = _evaluate_expression(code_model.code)
+            result = _cached_evaluate_expression(code_model.code)  # Use cached version
             logger.info(f"Calculation result: {result}")
             return str(result)
         except MathEvaluationError as e:
