@@ -100,15 +100,19 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
     tools: List[BaseTool]
 
     def _transform(self, input: Iterator[Union[str, BaseMessage]]) -> Iterator[Task]:
-        texts = []
-        thought = None
+        buffer = []
+        current_thought = None
+
         for chunk in input:
             text = self._extract_text(chunk)
-            for task, thought in self.ingest_token(text, texts, thought):
-                yield task
-        # Final possible task
-        if texts:
-            task, _ = self._parse_task("".join(texts), thought)
+            for task, new_thought in self.ingest_token(text, buffer, current_thought):
+                if task:
+                    yield task
+                current_thought = new_thought
+
+        # Process any remaining content in the buffer
+        if buffer:
+            task, _ = self._parse_task("".join(buffer), current_thought)
             if task:
                 yield task
 
