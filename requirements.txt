@@ -2,3 +2,4 @@ numexpr
 langchain
 langchain-core
 langchain-openai
+pytest

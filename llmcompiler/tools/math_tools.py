@@ -1,6 +1,5 @@
 import math
-import re
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import numexpr
 from langchain.chains.openai_functions import create_structured_output_runnable
@@ -73,39 +72,64 @@ You must extract the relevant numbers and directly put them in code."""
 
 class ExecuteCode(BaseModel):
     """The input to the numexpr.evaluate() function."""
-
     reasoning: str = Field(
         ...,
         description="The reasoning behind the code expression, including how context is included, if applicable.",
     )
-
     code: str = Field(
         ...,
         description="The simple code expression to execute by numexpr.evaluate().",
     )
 
 
-def _evaluate_expression(expression: str) -> str:
+class MathEvaluationError(Exception):
+    """Custom exception for math evaluation errors."""
+    pass
+
+
+def _evaluate_expression(expression: str) -> Union[float, int]:
+    """
+    Safely evaluate a mathematical expression using numexpr.
+
+    Args:
+        expression (str): The mathematical expression to evaluate.
+
+    Returns:
+        Union[float, int]: The result of the evaluation.
+
+    Raises:
+        MathEvaluationError: If the expression cannot be evaluated.
+    """
     try:
         local_dict = {"pi": math.pi, "e": math.e}
-        output = str(
-            numexpr.evaluate(
-                expression.strip(),
-                global_dict={},  # restrict access to globals
-                local_dict=local_dict,  # add common mathematical functions
-            )
+        result = numexpr.evaluate(
+            expression.strip(),
+            global_dict={},  # restrict access to globals
+            local_dict=local_dict,  # add common mathematical constants
         )
+
+        # Convert numpy types to Python native types
+        if hasattr(result, 'item'):
+            result = result.item()
+
+        return result
     except Exception as e:
-        raise ValueError(
-            f'Failed to evaluate "{expression}". Raised error: {repr(e)}.'
-            " Please try again with a valid numerical expression"
+        raise MathEvaluationError(
+            f'Failed to evaluate "{expression}". Error: {str(e)}. '
+            "Please provide a valid numerical expression."
         )
 
-    # Remove any leading and trailing brackets from the output
-    return re.sub(r"^\[|\]$", "", output)
 
+def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
+    """
+    Create and return a StructuredTool for mathematical calculations.
 
-def get_math_tool(llm: ChatOpenAI):
+    Args:
+        llm (ChatOpenAI): The language model to use for code generation.
+
+    Returns:
+        StructuredTool: A tool that can be used for mathematical calculations.
+    """
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", _SYSTEM_PROMPT),
@@ -119,7 +143,18 @@ def get_math_tool(llm: ChatOpenAI):
             problem: str,
             context: Optional[List[str]] = None,
             config: Optional[RunnableConfig] = None,
-    ):
+    ) -> str:
+        """
+        Calculate the result of a mathematical expression.
+
+        Args:
+            problem (str): The mathematical problem to solve.
+            context (Optional[List[str]]): Additional context for the problem.
+            config (Optional[RunnableConfig]): Configuration for the runnable.
+
+        Returns:
+            str: The result of the calculation or an error message.
+        """
         chain_input = {"problem": problem}
         if context:
             context_str = "\n".join(context)
@@ -127,12 +162,16 @@ def get_math_tool(llm: ChatOpenAI):
                 context_str = _ADDITIONAL_CONTEXT_PROMPT.format(
                     context=context_str.strip()
                 )
-                chain_input["context"] = [SystemMessage(content=context_str)]
-        code_model = extractor.invoke(chain_input, config)
+            chain_input["context"] = [SystemMessage(content=context_str)]
+
         try:
-            return _evaluate_expression(code_model.code)
+            code_model = extractor.invoke(chain_input, config)
+            result = _evaluate_expression(code_model.code)
+            return str(result)
+        except MathEvaluationError as e:
+            return str(e)
         except Exception as e:
-            return repr(e)
+            return f"An unexpected error occurred: {str(e)}"
 
     return StructuredTool.from_function(
         name="math",
