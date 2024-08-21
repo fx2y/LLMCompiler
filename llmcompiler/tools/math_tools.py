@@ -159,7 +159,8 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
             MessagesPlaceholder(variable_name="context", optional=True),
         ]
     )
-    extractor = create_structured_output_runnable(ExecuteCode, llm, prompt)
+    extractor = prompt | llm.with_structured_output(ExecuteCode)
+    # extractor = create_structured_output_runnable(ExecuteCode, llm, prompt)
 
     def calculate_expression(
             problem: str,
@@ -177,6 +178,16 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
         Returns:
             str: The result of the calculation or an error message.
         """
+        # Input validation
+        if not isinstance(problem, str) or not problem.strip():
+            return "Error: 'problem' must be a non-empty string."
+
+        if context is not None:
+            if not isinstance(context, list):
+                return "Error: 'context' must be a list of strings or None."
+            if not all(isinstance(item, str) for item in context):
+                return "Error: All items in 'context' must be strings."
+
         chain_input = {"problem": problem}
         if context:
             context_str = "\n".join(context)
