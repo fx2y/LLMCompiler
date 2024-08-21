@@ -1,0 +1,4 @@
+numexpr
+langchain
+langchain-core
+langchain-openai
