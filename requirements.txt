@@ -4,3 +4,5 @@ langchain-core
 langchain-openai
 pytest
 numpy
+langgraph
+langchain-community
