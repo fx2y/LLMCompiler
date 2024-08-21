@@ -129,3 +129,24 @@ def test_parse_mixed_args():
         "arg1": 'simple string',
         "arg2": {'nested': [1, 2, 3]}
     }
+
+
+def test_parser_initialization_valid():
+    parser = LLMCompilerPlanParser(tools=mock_tools)
+    assert parser.tools == mock_tools
+
+
+def test_parser_initialization_invalid_type():
+    with pytest.raises(ValueError, match="The 'tools' parameter must be a list."):
+        LLMCompilerPlanParser(tools="not a list")
+
+
+def test_parser_initialization_empty_list():
+    with pytest.raises(ValueError, match="The 'tools' list cannot be empty."):
+        LLMCompilerPlanParser(tools=[])
+
+
+def test_parser_initialization_invalid_items():
+    invalid_tools = [mock_tools[0], "not a tool", mock_tools[1]]
+    with pytest.raises(ValueError, match="All items in the 'tools' list must be instances of BaseTool."):
+        LLMCompilerPlanParser(tools=invalid_tools)

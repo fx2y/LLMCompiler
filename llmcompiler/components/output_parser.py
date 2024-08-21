@@ -115,6 +115,20 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
 
     tools: List[BaseTool]
 
+    def __init__(self, tools: List[BaseTool]):
+        self._validate_tools(tools)
+        super().__init__(tools=tools)
+        self.tools = tools
+
+    @staticmethod
+    def _validate_tools(tools: List[BaseTool]) -> None:
+        if not isinstance(tools, list):
+            raise ValueError("The 'tools' parameter must be a list.")
+        if not tools:
+            raise ValueError("The 'tools' list cannot be empty.")
+        if not all(isinstance(tool, BaseTool) for tool in tools):
+            raise ValueError("All items in the 'tools' list must be instances of BaseTool.")
+
     def _transform(self, input: Iterator[Union[str, BaseMessage]]) -> Iterator[Task]:
         buffer = []
         current_thought = None
