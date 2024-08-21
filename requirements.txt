@@ -6,3 +6,6 @@ pytest
 numpy
 langgraph
 langchain-community
+environs
+duckduckgo-search
+langfuse
