@@ -3,7 +3,7 @@ import re
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers.transform import BaseTransformOutputParser
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -101,11 +101,9 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
 
     def _transform(self, input: Iterator[Union[str, BaseMessage]]) -> Iterator[Task]:
         texts = []
-        # TODO: Cleanup tuple state tracking here.
         thought = None
         for chunk in input:
-            # Assume input is str. TODO: support vision/other formats
-            text = chunk if isinstance(chunk, str) else str(chunk.content)
+            text = self._extract_text(chunk)
             for task, thought in self.ingest_token(text, texts, thought):
                 yield task
         # Final possible task
@@ -113,6 +111,17 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
             task, _ = self._parse_task("".join(texts), thought)
             if task:
                 yield task
+
+    def _extract_text(self, chunk: Union[str, BaseMessage]) -> str:
+        if isinstance(chunk, str):
+            return chunk
+        elif isinstance(chunk, (HumanMessage, AIMessage)):
+            return str(chunk.content)
+        elif isinstance(chunk, BaseMessage):
+            # Handle other message types (e.g., SystemMessage, FunctionMessage)
+            return str(chunk.content)
+        else:
+            raise ValueError(f"Unsupported input type: {type(chunk)}")
 
     def parse(self, text: str) -> List[Task]:
         return list(self._transform([text]))
