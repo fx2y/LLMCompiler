@@ -9,6 +9,16 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from typing_extensions import TypedDict
 
+
+# Add these new custom exceptions
+class InvalidToolError(OutputParserException):
+    """Raised when an invalid tool is encountered."""
+
+
+class ArgumentParsingError(OutputParserException):
+    """Raised when there's an error parsing arguments."""
+
+
 THOUGHT_PATTERN = r"Thought: ([^\n]*)"
 ACTION_PATTERN = r"\n*(\d+)\. (\w+)\((.*)\)(\s*#\w+\n)?"
 ID_PATTERN = r"\$\{?(\d+)\}?"
@@ -16,50 +26,102 @@ END_OF_PLAN = ""
 
 
 def _parse_llm_compiler_action_args(args: str, tool: Union[str, BaseTool]) -> dict[str, Any]:
-    """Parse arguments from a string, handling complex structures."""
+    """Parse arguments from a string, handling complex structures and validating types."""
     if args == "" or isinstance(tool, str):
         return {}
 
-    def parse_value(value: str) -> Any:
+    def parse_value(value: str, expected_type: type) -> Any:
         value = value.strip()
         try:
-            return ast.literal_eval(value)
+            parsed_value = ast.literal_eval(value)
         except (ValueError, SyntaxError):
-            return value
+            parsed_value = value
+
+        if not isinstance(parsed_value, expected_type):
+            try:
+                # Attempt type conversion for basic types
+                if expected_type == int:
+                    parsed_value = int(parsed_value)
+                elif expected_type == float:
+                    parsed_value = float(parsed_value)
+                elif expected_type == bool:
+                    parsed_value = bool(parsed_value)
+                elif expected_type == str:
+                    parsed_value = str(parsed_value)
+                elif expected_type == list:
+                    if isinstance(parsed_value, str):
+                        parsed_value = ast.literal_eval(parsed_value)
+                    if not isinstance(parsed_value, list):
+                        raise ValueError
+                elif expected_type == dict:
+                    if isinstance(parsed_value, str):
+                        parsed_value = ast.literal_eval(parsed_value)
+                    if not isinstance(parsed_value, dict):
+                        raise ValueError
+                else:
+                    raise ValueError
+            except ValueError:
+                raise ArgumentParsingError(f"Expected type {expected_type.__name__} for value: {value}")
+
+        return parsed_value
 
     extracted_args = {}
-    current_key = None
-    current_value = ""
-    nesting_level = 0
+    remaining_args = args
 
     try:
-        for char in args:
-            if char == '=' and nesting_level == 0:
-                if current_key:
-                    extracted_args[current_key] = parse_value(current_value)
-                current_key = current_value.strip()
-                current_value = ""
-            elif char in '([{':
-                nesting_level += 1
-                current_value += char
-            elif char in ')]}':
-                nesting_level -= 1
-                current_value += char
-            elif char == ',' and nesting_level == 0:
-                if current_key:
-                    extracted_args[current_key] = parse_value(current_value)
-                    current_key = None
-                current_value = ""
-            else:
-                current_value += char
+        for key, schema in tool.args.items():
+            if f"{key}=" in remaining_args:
+                start_idx = remaining_args.index(f"{key}=") + len(key) + 1
+                end_idx = start_idx
+                nesting_level = 0
+                in_string = False
+                string_char = None
 
-        if current_key:
-            extracted_args[current_key] = parse_value(current_value)
+                for i, char in enumerate(remaining_args[start_idx:], start=start_idx):
+                    if char in "\"'" and not in_string:
+                        in_string = True
+                        string_char = char
+                    elif char == string_char and in_string:
+                        in_string = False
+                    elif char in "([{" and not in_string:
+                        nesting_level += 1
+                    elif char in ")]}" and not in_string:
+                        nesting_level -= 1
+                    elif char == "," and nesting_level == 0 and not in_string:
+                        end_idx = i
+                        break
+                else:
+                    end_idx = len(remaining_args)
 
+                value = remaining_args[start_idx:end_idx].strip()
+                expected_type = _get_expected_type(schema)
+                extracted_args[key] = parse_value(value, expected_type)
+                remaining_args = remaining_args[end_idx:].lstrip(", ")
+
+    except ArgumentParsingError as e:
+        raise e
     except Exception as e:
         raise OutputParserException(f"Error parsing arguments: {str(e)}") from e
 
     return extracted_args
+
+
+def _get_expected_type(schema: Dict[str, Any]) -> type:
+    type_str = schema.get('type', 'string')
+    if type_str == 'string':
+        return str
+    elif type_str == 'integer':
+        return int
+    elif type_str == 'number':
+        return float
+    elif type_str == 'boolean':
+        return bool
+    elif type_str == 'array':
+        return list
+    elif type_str == 'object':
+        return dict
+    else:
+        return str  # Default to string for unknown types
 
 
 def default_dependency_rule(idx, args: str):
@@ -98,7 +160,7 @@ def instantiate_task(
         try:
             tool = tools[[tool.name for tool in tools].index(tool_name)]
         except ValueError as e:
-            raise OutputParserException(f"Tool {tool_name} not found.") from e
+            raise InvalidToolError(f"Tool {tool_name} not found.") from e
     tool_args = _parse_llm_compiler_action_args(args, tool)
     dependencies = _get_dependencies_from_graph(idx, tool_name, tool_args)
     return Task(
