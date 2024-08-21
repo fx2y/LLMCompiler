@@ -1,10 +1,9 @@
-import math
 import logging
+import math
 from typing import List, Optional, Union
 
 import numexpr
 import numpy as np
-from langchain.chains.openai_functions import create_structured_output_runnable
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel, Field
@@ -116,36 +115,20 @@ def _evaluate_expression(expression: str) -> Union[float, int]:
         )
 
         # Convert numpy types to Python native types
-        if isinstance(result, np.ndarray):
-            if result.size == 1:
-                result = result.item()
-            else:
+        if isinstance(result, (np.ndarray, np.number)):
+            if getattr(result, 'size', 1) > 1:
                 raise MathEvaluationError("Expression resulted in an array. Please provide a scalar expression.")
-        elif hasattr(result, 'item'):
             result = result.item()
 
         # Check for invalid results
         if not np.isfinite(result):
             if np.isnan(result):
                 raise MathEvaluationError("Result is Not a Number (NaN). Check your expression for invalid operations.")
-            elif np.isinf(result):
-                raise MathEvaluationError(
-                    "Result is Infinity. Check your expression for division by zero or very large numbers.")
+            raise MathEvaluationError(
+                "Result is Infinity. Check your expression for division by zero or very large numbers.")
 
         logger.info(f"Expression result: {result}")
         return result
-    except ValueError as e:
-        logger.error(f"NumExpr evaluation error: {str(e)}")
-        raise MathEvaluationError(f"NumExpr evaluation error: {str(e)}")
-    except KeyError as e:
-        logger.error(f"Undefined variable or function: {str(e)}")
-        raise MathEvaluationError(f"Undefined variable or function: {str(e)}")
-    except SyntaxError as e:
-        logger.error(f"Syntax error in the expression: {str(e)}")
-        raise MathEvaluationError(f"Syntax error in the expression: {str(e)}")
-    except TypeError as e:
-        logger.error(f"Type error: {str(e)}")
-        raise MathEvaluationError(f"Type error: {str(e)}. Check if you're using the correct types in your expression.")
     except Exception as e:
         logger.error(f'Failed to evaluate "{expression}". Error: {str(e)}')
         raise MathEvaluationError(
@@ -172,6 +155,7 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
         ]
     )
     extractor = prompt | llm.with_structured_output(ExecuteCode)
+
     # extractor = create_structured_output_runnable(ExecuteCode, llm, prompt)
 
     def calculate_expression(

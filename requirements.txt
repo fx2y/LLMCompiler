@@ -3,3 +3,4 @@ langchain
 langchain-core
 langchain-openai
 pytest
+numpy

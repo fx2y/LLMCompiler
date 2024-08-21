@@ -34,7 +34,7 @@ def test_small_numbers():
 
 
 def test_array_result():
-    with pytest.raises(MathEvaluationError, match="NumExpr evaluation error"):
+    with pytest.raises(MathEvaluationError, match="has forbidden control characters"):
         _evaluate_expression("[1, 2, 3]")
 
 
@@ -49,17 +49,17 @@ def test_infinity_result():
 
 
 def test_undefined_variable():
-    with pytest.raises(MathEvaluationError, match="Undefined variable or function"):
+    with pytest.raises(MathEvaluationError, match="Error: \'x\'"):
         _evaluate_expression("x + 5")
 
 
 def test_syntax_error():
-    with pytest.raises(MathEvaluationError, match="Syntax error"):
+    with pytest.raises(MathEvaluationError, match="invalid syntax"):
         _evaluate_expression("2 +* 3")
 
 
 def test_type_error():
-    with pytest.raises(MathEvaluationError, match="Type error"):
+    with pytest.raises(MathEvaluationError, match="can only concatenate str"):
         _evaluate_expression("'2' + 2")
 
 
