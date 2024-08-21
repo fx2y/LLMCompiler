@@ -15,13 +15,6 @@ ID_PATTERN = r"\$\{?(\d+)\}?"
 END_OF_PLAN = ""
 
 
-def _ast_parse(arg: str) -> Any:
-    try:
-        return ast.literal_eval(arg)
-    except:  # noqa
-        return arg
-
-
 def _parse_llm_compiler_action_args(args: str, tool: Union[str, BaseTool]) -> dict[str, Any]:
     """Parse arguments from a string, handling complex structures."""
     if args == "" or isinstance(tool, str):
@@ -39,28 +32,32 @@ def _parse_llm_compiler_action_args(args: str, tool: Union[str, BaseTool]) -> di
     current_value = ""
     nesting_level = 0
 
-    for char in args:
-        if char == '=' and nesting_level == 0:
-            if current_key:
-                extracted_args[current_key] = parse_value(current_value)
-            current_key = current_value.strip()
-            current_value = ""
-        elif char in '([{':
-            nesting_level += 1
-            current_value += char
-        elif char in ')]}':
-            nesting_level -= 1
-            current_value += char
-        elif char == ',' and nesting_level == 0:
-            if current_key:
-                extracted_args[current_key] = parse_value(current_value)
-                current_key = None
-            current_value = ""
-        else:
-            current_value += char
+    try:
+        for char in args:
+            if char == '=' and nesting_level == 0:
+                if current_key:
+                    extracted_args[current_key] = parse_value(current_value)
+                current_key = current_value.strip()
+                current_value = ""
+            elif char in '([{':
+                nesting_level += 1
+                current_value += char
+            elif char in ')]}':
+                nesting_level -= 1
+                current_value += char
+            elif char == ',' and nesting_level == 0:
+                if current_key:
+                    extracted_args[current_key] = parse_value(current_value)
+                    current_key = None
+                current_value = ""
+            else:
+                current_value += char
 
-    if current_key:
-        extracted_args[current_key] = parse_value(current_value)
+        if current_key:
+            extracted_args[current_key] = parse_value(current_value)
+
+    except Exception as e:
+        raise OutputParserException(f"Error parsing arguments: {str(e)}") from e
 
     return extracted_args
 
@@ -122,18 +119,21 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
         buffer = []
         current_thought = None
 
-        for chunk in input:
-            text = self._extract_text(chunk)
-            for task, new_thought in self.ingest_token(text, buffer, current_thought):
+        try:
+            for chunk in input:
+                text = self._extract_text(chunk)
+                for task, new_thought in self.ingest_token(text, buffer, current_thought):
+                    if task:
+                        yield task
+                    current_thought = new_thought
+
+            # Process any remaining content in the buffer
+            if buffer:
+                task, _ = self._parse_task("".join(buffer), current_thought)
                 if task:
                     yield task
-                current_thought = new_thought
-
-        # Process any remaining content in the buffer
-        if buffer:
-            task, _ = self._parse_task("".join(buffer), current_thought)
-            if task:
-                yield task
+        except Exception as e:
+            raise OutputParserException(f"Error in _transform: {str(e)}") from e
 
     def _extract_text(self, chunk: Union[str, BaseMessage]) -> str:
         if isinstance(chunk, str):
@@ -147,7 +147,10 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
             raise ValueError(f"Unsupported input type: {type(chunk)}")
 
     def parse(self, text: str) -> List[Task]:
-        return list(self._transform([text]))
+        try:
+            return list(self._transform([text]))
+        except Exception as e:
+            raise OutputParserException(f"Error parsing input: {str(e)}") from e
 
     def stream(
             self,
@@ -160,33 +163,39 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
     def ingest_token(
             self, token: str, buffer: List[str], thought: Optional[str]
     ) -> Iterator[Tuple[Optional[Task], str]]:
-        buffer.append(token)
-        if "\n" in token:
-            buffer_ = "".join(buffer).split("\n")
-            suffix = buffer_[-1]
-            for line in buffer_[:-1]:
-                task, thought = self._parse_task(line, thought)
-                if task:
-                    yield task, thought
-            buffer.clear()
-            buffer.append(suffix)
+        try:
+            buffer.append(token)
+            if "\n" in token:
+                buffer_ = "".join(buffer).split("\n")
+                suffix = buffer_[-1]
+                for line in buffer_[:-1]:
+                    task, thought = self._parse_task(line, thought)
+                    if task:
+                        yield task, thought
+                buffer.clear()
+                buffer.append(suffix)
+        except Exception as e:
+            raise OutputParserException(f"Error ingesting token: {str(e)}") from e
 
     def _parse_task(self, line: str, thought: Optional[str] = None):
         task = None
-        if match := re.match(THOUGHT_PATTERN, line):
-            # Optionally, action can be preceded by a thought
-            thought = match.group(1)
-        elif match := re.match(ACTION_PATTERN, line):
-            # if action is parsed, return the task, and clear the buffer
-            idx, tool_name, args, _ = match.groups()
-            idx = int(idx)
-            task = instantiate_task(
-                tools=self.tools,
-                idx=idx,
-                tool_name=tool_name,
-                args=args,
-                thought=thought,
-            )
-            thought = None
-        # Else it is just dropped
+        try:
+            if match := re.match(THOUGHT_PATTERN, line):
+                # Optionally, action can be preceded by a thought
+                thought = match.group(1)
+            elif match := re.match(ACTION_PATTERN, line):
+                # if action is parsed, return the task, and clear the buffer
+                idx, tool_name, args, _ = match.groups()
+                idx = int(idx)
+                task = instantiate_task(
+                    tools=self.tools,
+                    idx=idx,
+                    tool_name=tool_name,
+                    args=args,
+                    thought=thought,
+                )
+                thought = None
+            # Else it is just dropped
+        except Exception as e:
+            raise OutputParserException(f"Error parsing task: {str(e)}") from e
         return task, thought
