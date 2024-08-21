@@ -38,10 +38,22 @@ _MATH_DESCRIPTION = (
     'For instance, "what is xx in height?" or "what is xx in millions?" instead of "what is xx?"\n'
 )
 
-_SYSTEM_PROMPT = """Translate a math problem into a expression that can be executed using Python's numexpr library. Use the output of running this code to answer the question.
+_SYSTEM_PROMPT = """Translate a math problem into an expression that can be executed using Python's numexpr library. Provide detailed reasoning and any intermediate steps.
 
 Question: ${{Question with math problem.}}
-```text
+
+Reasoning:
+1. Problem interpretation: ${{Explain how you understand the problem}}
+2. Solution approach: ${{Describe your step-by-step approach to solving the problem}}
+3. Mathematical concepts: ${{Explain any relevant mathematical concepts}}
+4. Context incorporation: ${{If applicable, explain how you're using the provided context}}
+5. Final expression justification: ${{Justify your final mathematical expression}}
+
+Intermediate steps:
+${{List any intermediate calculations or transformations, if necessary}}
+
+Code:
+```
 ${{single line mathematical expression that solves the problem}}
 ```
 ...numexpr.evaluate(text)...
@@ -79,11 +91,20 @@ class ExecuteCode(BaseModel):
     """The input to the numexpr.evaluate() function."""
     reasoning: str = Field(
         ...,
-        description="The reasoning behind the code expression, including how context is included, if applicable.",
+        description="Detailed reasoning behind the code expression, including:\n"
+                    "1. Problem interpretation\n"
+                    "2. Step-by-step solution approach\n"
+                    "3. Explanation of any mathematical concepts used\n"
+                    "4. How context is incorporated (if applicable)\n"
+                    "5. Justification for the final expression",
     )
     code: str = Field(
         ...,
         description="The simple code expression to execute by numexpr.evaluate().",
+    )
+    intermediate_steps: List[str] = Field(
+        default_factory=list,
+        description="List of intermediate calculations or transformations, if any.",
     )
 
 
