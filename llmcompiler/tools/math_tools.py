@@ -1,4 +1,5 @@
 import math
+import logging
 from typing import List, Optional, Union
 
 import numexpr
@@ -10,6 +11,10 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 _MATH_DESCRIPTION = (
     "math(problem: str, context: Optional[list[str]]) -> float:\n"
@@ -101,6 +106,7 @@ def _evaluate_expression(expression: str) -> Union[float, int]:
     Raises:
         MathEvaluationError: If the expression cannot be evaluated.
     """
+    logger.info(f"Evaluating expression: {expression}")
     try:
         local_dict = {"pi": math.pi, "e": math.e}
         result = numexpr.evaluate(
@@ -126,16 +132,22 @@ def _evaluate_expression(expression: str) -> Union[float, int]:
                 raise MathEvaluationError(
                     "Result is Infinity. Check your expression for division by zero or very large numbers.")
 
+        logger.info(f"Expression result: {result}")
         return result
     except ValueError as e:
+        logger.error(f"NumExpr evaluation error: {str(e)}")
         raise MathEvaluationError(f"NumExpr evaluation error: {str(e)}")
     except KeyError as e:
+        logger.error(f"Undefined variable or function: {str(e)}")
         raise MathEvaluationError(f"Undefined variable or function: {str(e)}")
     except SyntaxError as e:
+        logger.error(f"Syntax error in the expression: {str(e)}")
         raise MathEvaluationError(f"Syntax error in the expression: {str(e)}")
     except TypeError as e:
+        logger.error(f"Type error: {str(e)}")
         raise MathEvaluationError(f"Type error: {str(e)}. Check if you're using the correct types in your expression.")
     except Exception as e:
+        logger.error(f'Failed to evaluate "{expression}". Error: {str(e)}')
         raise MathEvaluationError(
             f'Failed to evaluate "{expression}". Error: {str(e)}. '
             "Please provide a valid numerical expression."
@@ -178,14 +190,21 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
         Returns:
             str: The result of the calculation or an error message.
         """
+        logger.info(f"Received problem: {problem}")
+        if context:
+            logger.info(f"Received context: {context}")
+
         # Input validation
         if not isinstance(problem, str) or not problem.strip():
+            logger.warning("Invalid 'problem' input")
             return "Error: 'problem' must be a non-empty string."
 
         if context is not None:
             if not isinstance(context, list):
+                logger.warning("Invalid 'context' input: not a list")
                 return "Error: 'context' must be a list of strings or None."
             if not all(isinstance(item, str) for item in context):
+                logger.warning("Invalid 'context' input: not all items are strings")
                 return "Error: All items in 'context' must be strings."
 
         chain_input = {"problem": problem}
@@ -199,11 +218,16 @@ def get_math_tool(llm: ChatOpenAI) -> StructuredTool:
 
         try:
             code_model = extractor.invoke(chain_input, config)
+            logger.info(f"Generated code: {code_model.code}")
+            logger.info(f"Reasoning: {code_model.reasoning}")
             result = _evaluate_expression(code_model.code)
+            logger.info(f"Calculation result: {result}")
             return str(result)
         except MathEvaluationError as e:
+            logger.error(f"MathEvaluationError: {str(e)}")
             return str(e)
         except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
             return f"An unexpected error occurred: {str(e)}"
 
     return StructuredTool.from_function(
