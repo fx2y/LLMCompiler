@@ -22,27 +22,46 @@ def _ast_parse(arg: str) -> Any:
         return arg
 
 
-def _parse_llm_compiler_action_args(args: str, tool: Union[str, BaseTool]) -> list[Any]:
-    """Parse arguments from a string."""
+def _parse_llm_compiler_action_args(args: str, tool: Union[str, BaseTool]) -> dict[str, Any]:
+    """Parse arguments from a string, handling complex structures."""
     if args == "" or isinstance(tool, str):
-        return ()
+        return {}
+
+    def parse_value(value: str) -> Any:
+        value = value.strip()
+        try:
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return value
+
     extracted_args = {}
-    tool_key = None
-    prev_idx = None
-    for key in tool.args.keys():
-        if f"{key}=" in args:
-            idx = args.index(f"{key}=")
-            if prev_idx is not None:
-                extracted_args[tool_key] = _ast_parse(
-                    args[prev_idx:idx].strip().rstrip(",")
-                )
-            args = args.split(f"{key}=", 1)[1]
-            tool_key = key
-            prev_idx = 0
-    if prev_idx is not None:
-        extracted_args[tool_key] = _ast_parse(
-            args[prev_idx:].strip().rstrip(",").rstrip(")")
-        )
+    current_key = None
+    current_value = ""
+    nesting_level = 0
+
+    for char in args:
+        if char == '=' and nesting_level == 0:
+            if current_key:
+                extracted_args[current_key] = parse_value(current_value)
+            current_key = current_value.strip()
+            current_value = ""
+        elif char in '([{':
+            nesting_level += 1
+            current_value += char
+        elif char in ')]}':
+            nesting_level -= 1
+            current_value += char
+        elif char == ',' and nesting_level == 0:
+            if current_key:
+                extracted_args[current_key] = parse_value(current_value)
+                current_key = None
+            current_value = ""
+        else:
+            current_value += char
+
+    if current_key:
+        extracted_args[current_key] = parse_value(current_value)
+
     return extracted_args
 
 

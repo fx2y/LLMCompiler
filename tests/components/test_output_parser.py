@@ -2,7 +2,7 @@ import pytest
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import BaseTool
 
-from llmcompiler.components.output_parser import LLMCompilerPlanParser
+from llmcompiler.components.output_parser import LLMCompilerPlanParser, _parse_llm_compiler_action_args
 
 
 # Mock tools for testing
@@ -79,3 +79,53 @@ def test_no_match(parser):
     input_str = "This is just some random text without any task."
     tasks = list(parser._transform([input_str]))
     assert len(tasks) == 0
+
+
+class MockTool3(BaseTool):
+    def _run(self, arg1: dict, arg2: list):
+        # Dummy implementation
+        return f"Running {self.name} with arg1: {arg1}, arg2: {arg2}"
+
+
+class MockTool4(BaseTool):
+    def _run(self, arg1: list):
+        # Dummy implementation
+        return f"Running {self.name} with arg1: {arg1}"
+
+
+class MockTool5(BaseTool):
+    def _run(self, arg1: str, arg2: dict):
+        # Dummy implementation
+        return f"Running {self.name} with arg1: {arg1}, arg2: {arg2}"
+
+
+def test_parse_complex_args():
+    tool = MockTool3(name="complex_tool", description="Complex Tool")
+    args = "arg1={'key1': 'value1', 'key2': [1, 2, 3]}, arg2=[{'nested': 'dict'}, (1, 2, 3)]"
+    parsed_args = _parse_llm_compiler_action_args(args, tool)
+
+    assert parsed_args == {
+        "arg1": {'key1': 'value1', 'key2': [1, 2, 3]},
+        "arg2": [{'nested': 'dict'}, (1, 2, 3)]
+    }
+
+
+def test_parse_nested_structures():
+    tool = MockTool4(name="nested_tool", description="Nested Tool", tool_args={"arg1": list})
+    args = "arg1=[1, [2, 3], {'key': 'value'}]"
+    parsed_args = _parse_llm_compiler_action_args(args, tool)
+
+    assert parsed_args == {
+        "arg1": [1, [2, 3], {'key': 'value'}]
+    }
+
+
+def test_parse_mixed_args():
+    tool = MockTool5(name="mixed_tool", description="Mixed Tool", tool_args={"arg1": str, "arg2": dict})
+    args = "arg1='simple string', arg2={'nested': [1, 2, 3]}"
+    parsed_args = _parse_llm_compiler_action_args(args, tool)
+
+    assert parsed_args == {
+        "arg1": 'simple string',
+        "arg2": {'nested': [1, 2, 3]}
+    }
