@@ -217,7 +217,7 @@ class LLMCompilerPlanParser(BaseTransformOutputParser[dict], extra="allow"):
         elif isinstance(chunk, (HumanMessage, AIMessage)):
             return str(chunk.content)
         elif isinstance(chunk, BaseMessage):
-            # Handle other message types (e.g., SystemMessage, FunctionMessage)
+            # Handle other message types (e.g., SystemMessage, ToolMessage)
             return str(chunk.content)
         else:
             raise ValueError(f"Unsupported input type: {type(chunk)}")

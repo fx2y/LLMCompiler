@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict, Any, Union
 
-from langchain_core.messages import BaseMessage, FunctionMessage
+from langchain_core.messages import BaseMessage, ToolMessage
 
 ID_PATTERN = re.compile(r"\$\{?(\d+)\}?")
 
@@ -22,6 +22,6 @@ def _resolve_arg(arg: Union[str, Any], observations: Dict[int, Any]) -> Union[st
 def _get_observations(messages: List[BaseMessage]) -> Dict[int, Any]:
     results = {}
     for message in messages[::-1]:
-        if isinstance(message, FunctionMessage):
+        if isinstance(message, ToolMessage):
             results[int(message.additional_kwargs["idx"])] = message.content
     return results

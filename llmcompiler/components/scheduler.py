@@ -1,8 +1,9 @@
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Any, Dict, List, Iterable
 
-from langchain_core.messages import FunctionMessage, BaseMessage
+from langchain_core.messages import AIMessage, ToolMessage, BaseMessage
 from langchain_core.runnables import chain as as_runnable
 from typing_extensions import TypedDict
 
@@ -72,7 +73,7 @@ def schedule_pending_task(
 
 
 @as_runnable
-def schedule_tasks(scheduler_input: SchedulerInput) -> List[FunctionMessage]:
+def schedule_tasks(scheduler_input: SchedulerInput) -> List[BaseMessage]:
     tasks = scheduler_input["tasks"]
     args_for_tasks = {}
     messages = scheduler_input["messages"]
@@ -107,12 +108,23 @@ def schedule_tasks(scheduler_input: SchedulerInput) -> List[FunctionMessage]:
         k: (task_names[k], args_for_tasks[k], observations[k])
         for k in sorted(observations.keys() - originals)
     }
-    tool_messages = [
-        FunctionMessage(
+    tool_messages = []
+    for k, (name, task_args, obs) in new_observations.items():
+        tool_call_id = str(uuid.uuid4())
+        ai_message = AIMessage(content="", tool_calls=[
+            {
+                "name": name,
+                "args": task_args,
+                "id": tool_call_id,
+                "type": "tool_call",
+            }
+        ])
+        tool_message = ToolMessage(
             name=name,
             content=str(obs),
+            tool_call_id=tool_call_id,
             additional_kwargs={"idx": k, "args": task_args}
         )
-        for k, (name, task_args, obs) in new_observations.items()
-    ]
+        tool_messages.extend([ai_message, tool_message])
+
     return tool_messages

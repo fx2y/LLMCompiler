@@ -1,7 +1,6 @@
 import itertools
 from typing import List, Dict, Any, Iterator
 
-from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -15,6 +14,7 @@ from llmcompiler.components.joiner import create_joiner, \
     should_continue
 from llmcompiler.components.planner import create_planner, stream_plan
 from llmcompiler.components.scheduler import schedule_tasks
+from llmcompiler.tools.search_engine import search_engine
 
 
 class LLMCompiler:
@@ -91,7 +91,8 @@ if __name__ == '__main__':
         temperature=0.2
     )
     calculate = get_math_tool(llm)
-    search = DuckDuckGoSearchResults(max_results=1)
+    # search = DuckDuckGoSearchResults(max_results=1)
+    search = search_engine()
     tools = [search, calculate]
 
     planner_prompt = ChatPromptTemplate.from_messages([

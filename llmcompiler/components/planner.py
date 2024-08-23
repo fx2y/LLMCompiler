@@ -2,7 +2,7 @@ import json
 from typing import Sequence, Dict, List, Iterator
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import SystemMessage, FunctionMessage, BaseMessage
+from langchain_core.messages import SystemMessage, ToolMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableBranch, RunnableSerializable
 from langchain_core.tools import BaseTool
@@ -49,7 +49,7 @@ def create_planner(llm: BaseChatModel, tools: Sequence[BaseTool], base_prompt: C
     def wrap_and_get_last_index(state: list) -> Dict[str, List[BaseMessage]]:
         next_task = 0
         for message in state[::-1]:
-            if isinstance(message, FunctionMessage):
+            if isinstance(message, ToolMessage):
                 next_task = message.additional_kwargs["idx"] + 1
                 break
         state[-1].content = state[-1].content + f" - Begin counting at : {next_task}"

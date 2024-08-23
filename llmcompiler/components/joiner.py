@@ -8,8 +8,7 @@ from langgraph.constants import END
 
 
 class FinalResponse(BaseModel):
-    """The final response/answer."""
-    response: str
+    response: str = Field(description="The final response/answer")
 
 
 class Replan(BaseModel):
@@ -20,7 +19,7 @@ class Replan(BaseModel):
 class JoinOutputs(BaseModel):
     """Decide whether to replan or whether you can return the final response."""
     thought: str = Field(description="The chain of thought reasoning for the selected action")
-    action: Union[FinalResponse, Replan]
+    action: Union[FinalResponse, Replan] = Field(description="Finish or Replan")
 
 
 def create_joiner(llm: BaseChatModel, joiner_prompt: ChatPromptTemplate):
