@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Iterator
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableSerializable
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langfuse.callback import CallbackHandler
@@ -14,6 +15,7 @@ from llmcompiler.components.joiner import create_joiner, \
     should_continue
 from llmcompiler.components.planner import create_planner, stream_plan
 from llmcompiler.components.scheduler import schedule_tasks
+from llmcompiler.config import config as cfg
 from llmcompiler.tools.search_engine import search_engine
 
 
@@ -25,18 +27,26 @@ class LLMCompiler:
             planner_prompt: ChatPromptTemplate = None,
             joiner_prompt: ChatPromptTemplate = None
     ):
-        self.llm = llm
-        self.tools = tools
-        self.planner_prompt = planner_prompt
-        self.joiner_prompt = joiner_prompt
+        self.llm = llm or ChatOpenAI(
+            model_name=cfg.LLM_MODEL_NAME,
+            openai_api_base=cfg.OPENAI_API_BASE,
+            openai_api_key=cfg.OPENAI_API_KEY,
+            temperature=0.2
+        )
+        self.tools = tools or []
+        self.planner_prompt = planner_prompt or self._default_planner_prompt()
+        self.joiner_prompt = joiner_prompt or self._default_joiner_prompt()
 
-        self.planner = create_planner(self.llm, self.tools, self.planner_prompt)
+        self.planner = self._create_planner()
         self.scheduler = schedule_tasks
         self.joiner = create_joiner(self.llm, self.joiner_prompt)
 
         self.graph = self._build_graph()
 
         self.langfuse_handler = CallbackHandler()
+
+    def _create_planner(self) -> RunnableSerializable[list, dict]:
+        return create_planner(self.llm, self.tools, self.planner_prompt)
 
     def _build_graph(self) -> CompiledStateGraph:
         graph_builder = StateGraph(MessagesState)
@@ -70,6 +80,23 @@ class LLMCompiler:
         })
         return {"messages": messages + scheduled_tasks}
 
+    def add_tool(self, tool: BaseTool) -> None:
+        """Add a new tool to the compiler."""
+        if tool not in self.tools:
+            self.tools.append(tool)
+            self.planner = self._create_planner()
+            self.graph = self._build_graph()
+
+    def remove_tool(self, tool_name: str) -> None:
+        """Remove a tool from the compiler by its name."""
+        self.tools = [tool for tool in self.tools if tool.name != tool_name]
+        self.planner = self._create_planner()
+        self.graph = self._build_graph()
+
+    def get_registered_tools(self) -> List[str]:
+        """Get a list of names of all registered tools."""
+        return [tool.name for tool in self.tools]
+
     def run(self, input_message: str) -> str:
         final_state = self.graph.invoke({"messages": [HumanMessage(content=input_message)]},
                                         config={"callbacks": [self.langfuse_handler]})
@@ -79,24 +106,9 @@ class LLMCompiler:
         return self.graph.stream({"messages": [HumanMessage(content=input_message)]},
                                  config={"callbacks": [self.langfuse_handler]})
 
-
-if __name__ == '__main__':
-    from llmcompiler.config import config as cfg
-    from llmcompiler.tools.math_tools import get_math_tool
-
-    llm = ChatOpenAI(
-        model_name=cfg.LLM_MODEL_NAME,
-        openai_api_base=cfg.OPENAI_API_BASE,
-        openai_api_key=cfg.OPENAI_API_KEY,
-        temperature=0.2
-    )
-    calculate = get_math_tool(llm)
-    # search = DuckDuckGoSearchResults(max_results=1)
-    search = search_engine()
-    tools = [search, calculate]
-
-    planner_prompt = ChatPromptTemplate.from_messages([
-        ("system", """Given a user query, create a plan to solve it with the utmost parallelizability. Each plan should comprise an action from the following {num_tools} types:
+    def _default_planner_prompt(self) -> ChatPromptTemplate:
+        return ChatPromptTemplate.from_messages([
+            ("system", """Given a user query, create a plan to solve it with the utmost parallelizability. Each plan should comprise an action from the following {num_tools} types:
         {tool_descriptions}
         {num_tools}. join(): Collects and combines results from prior actions.
 
@@ -114,13 +126,14 @@ if __name__ == '__main__':
          - Ensure the plan maximizes parallelizability.
          - Only use the provided action types. If a query cannot be addressed using these, invoke the join action for the next steps.
          - Never introduce new actions other than the ones provided."""),
-        ("placeholder", "{messages}"),
-        ("system", """Remember, ONLY respond with the task list in the correct format! E.g.:
+            ("placeholder", "{messages}"),
+            ("system", """Remember, ONLY respond with the task list in the correct format! E.g.:
         idx. tool(arg_name=args)"""),
-    ])
+        ])
 
-    joiner_prompt = ChatPromptTemplate.from_messages([
-        ("system", """Solve a question answering task. Here are some guidelines:
+    def _default_joiner_prompt(self) -> ChatPromptTemplate:
+        return ChatPromptTemplate.from_messages([
+            ("system", """Solve a question answering task. Here are some guidelines:
          - In the Assistant Scratchpad, you will be given results of a plan you have executed to answer the user's question.
          - Thought needs to reason about the question based on the Observations in 1-2 sentences.
          - Ignore irrelevant action results.
@@ -132,13 +145,21 @@ if __name__ == '__main__':
         Available actions:
          (1) Finish(the final answer to return to the user): returns the answer and finishes the task.
          (2) Replan(the reasoning and other information that will help you plan again. Can be a line of any length): instructs why we must replan"""),
-        ("placeholder", "{messages}"),
-        ("system", """Using the above previous actions, decide whether to replan or finish. If all the required information is present. You may finish. If you have made many attempts to find the information without success, admit so and respond with whatever information you have gathered so the user can work well with you.
+            ("placeholder", "{messages}"),
+            ("system", """Using the above previous actions, decide whether to replan or finish. If all the required information is present. You may finish. If you have made many attempts to find the information without success, admit so and respond with whatever information you have gathered so the user can work well with you.
 
         {examples}"""),
-    ]).partial(examples="")
+        ]).partial(examples="")
 
-    compiler = LLMCompiler(llm, tools, planner_prompt, joiner_prompt)
+
+if __name__ == '__main__':
+    from llmcompiler.tools.math_tools import get_math_tool
+
+    calculate = get_math_tool()
+    search = search_engine()
+    tools = [search, calculate]
+
+    compiler = LLMCompiler(tools=tools)
 
     # Simple question
     result = compiler.run("What's the GDP of New York?")
